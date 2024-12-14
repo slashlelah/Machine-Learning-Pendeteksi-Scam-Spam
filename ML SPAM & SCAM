@@ -1,0 +1,384 @@
+
+Copy sesuai segmen untuk memudahkan tracing error, Gudlak.
+
+------------------------------------------------------------
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import nltk
+nltk.download('stopwords')
+import seaborn as sns
+%matplotlib inline   
+
+data = pd.read_csv("datasetspam.csv") // dataset dapat diganti sesuai yang kita butuhkan
+data.tail() 
+
+kamus = {0:  'normal', 1: 'penipuan', 2: 'promo'}
+data['Sentiment'] = data.label.apply(lambda x: kamus.get(x))
+
+data.info()
+
+
+------------------------------------------------------------
+
+
+cm = sns.light_palette("green", as_cmap=True)
+sent_count = data.groupby('Sentiment')['teks'].count().reset_index().sort_values(by = 'teks', ascending = False)
+sent_count.style.background_gradient(cmap = 'Purples')
+
+plt.figure(figsize = (12, 6))
+sns.countplot(x = 'Sentiment', data = data)
+plt.show()
+
+def char_count(sentence):
+  sentence = sentence.replace(" ","")
+  return len(sentence)
+
+data['char_count'] = data['teks'].apply(char_count)
+plt.figure(figsize = (12,6))
+sns.kdeplot(x = 'char_count', hue = 'Sentiment', shade = True, data = data)
+plt.show()
+
+------------------------------------------------------------
+
+
+import re
+
+def casefolding(text):
+    text = text.lower() #lowcase
+    text = re.sub(r'[^\w\s]','',text) # menghapus  tanda baca
+    text = re.sub(r'https?://\S+\www\.\S+','', text) #hapus url
+    text = re.sub(r'[-+]?[0-9]+','',text)
+    text = text.strip()
+    
+    return text
+
+------------------------------------------------------------
+
+
+raw = data ['teks'].iloc[5]
+case_folding = casefolding(raw)
+
+
+print('raw :', raw)
+print('after folding: ', case_folding)
+
+
+key_norm = pd.read_csv("normalisasi.csv")
+
+def text_normalize(text):
+    text = ' '.join([key_norm[key_norm['singkat']== word]['hasil'].values[0]
+                    if(key_norm['singkat']== word).any()
+                        else word for word in text.split()])
+    
+    text = str.lower(text)
+    return text
+
+
+raw = data['teks'].iloc[699]
+word_normal = text_normalize(raw)
+
+print('raw\t :', raw)
+print('after normalization\t :', word_normal)
+
+------------------------------------------------------------
+
+
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.corpus import stopwords
+
+stopwords_ind = stopwords.words('indonesian')
+stopword = ['yg','jg','teh','mah','da','atuh','jd','km','ak','lg','ya','ga','ngga','nggak','gak','tp',
+                   'kalo','nya','pake','liat','udh','aja','wkwk','wkwkwk','wk','gt','gais','blm','sih','tau',
+                   'tahu','gt','udah','utk','rb','rp','dgn','ayo','isi','biar','yah','dr','bawa','gitu','eh',
+                   'pas','td','sm','pengen','pgn','dpt','sd','byr','min','daring', 'online', 'pd']
+
+
+------------------------------------------------------------
+
+
+def remove_stop_words(text):
+    sw = stopwords_ind + stopword
+    clean_words = []
+    text = text.split()
+    for word in text:
+        if word not in sw:
+            clean_words.append(word)
+    return " ".join(clean_words)
+
+
+------------------------------------------------------------
+
+
+
+!pip -q install sastrawi
+from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
+
+factory = StemmerFactory()
+stemmer = factory.create_stemmer()
+
+def stemming(text):
+    text = stemmer.stem(text)
+    return text
+
+
+
+------------------------------------------------------------
+
+
+raw = data['teks'].iloc[1000]
+case_folding = casefolding(raw)
+stop = remove_stop_words(case_folding)
+tstem = stemming(stop)
+
+
+print('raw: ', raw)
+print('casefolded :', case_folding)
+print('after stopword :', stop)
+print('after stem :', tstem)
+
+------------------------------------------------------------
+
+
+def text_preprocessing_process(text):
+    text = casefolding(text)
+    text = text_normalize(text)
+    text = remove_stop_words(text)
+    text = stemming(text)
+    
+    return text
+
+
+------------------------------------------------------------
+
+
+%%time 
+data['clean_teks'] = data['teks'].apply(text_preprocessing_process)
+
+
+
+------------------------------------------------------------
+
+data
+
+------------------------------------------------------------
+
+data.to_csv("data_bersih.csv")
+
+
+x = data['clean_teks']
+y = data['label']
+
+y
+
+------------------------------------------------------------
+
+
+import pickle 
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+
+vec_TF_IDF = TfidfVectorizer(ngram_range=(1,1))
+
+vec_TF_IDF.fit(x)
+
+x_tf_idf = vec_TF_IDF.transform(x)
+
+pickle.dump(vec_TF_IDF.vocabulary_,open("feature_tf-idf.sav","wb"))
+
+
+
+
+------------------------------------------------------------
+
+
+vec_TF_IDF.vocabulary_
+
+
+
+------------------------------------------------------------
+
+
+print(len(vec_TF_IDF.get_feature_names_out()))
+
+
+
+print(vec_TF_IDF.get_feature_names_out())
+
+------------------------------------------------------------
+
+
+x1 = vec_TF_IDF.transform(x).toarray()
+data_tabular = pd.DataFrame(x1,columns = vec_TF_IDF.get_feature_names_out())
+
+data_tabular
+
+
+data_tabular.iloc[90:100,60:70]  
+
+------------------------------------------------------------
+
+
+x_train = np.array(data_tabular)
+y_train = np.array(y)
+
+
+------------------------------------------------------------
+
+from sklearn.feature_selection import SelectKBest
+from sklearn.feature_selection import chi2
+
+chi2_features = SelectKBest(chi2, k=3000)
+x_kbest_features= chi2_features.fit_transform(x_train, y_train)
+
+print('original :', x_train.shape[1])
+print('after', x_kbest_features.shape[1])
+
+------------------------------------------------------------
+
+
+Data = pd.DataFrame(chi2_features.scores_,columns=['Nilai'])
+
+Data
+
+------------------------------------------------------------
+
+
+feature = vec_TF_IDF.get_feature_names_out()
+feature
+
+Data['fitur'] = feature    
+
+------------------------------------------------------------
+
+Data.sort_values(by='Nilai', ascending =False)
+
+-------------------------------------------------------------
+
+
+mask = chi2_features.get_support()
+mask
+
+
+------------------------------------------------------------
+
+
+new_feature =[]
+
+for bool, f in zip(mask, feature):
+    if bool:
+        new_feature.append(f)
+    selected_feature = new_feature
+selected_feature
+
+
+------------------------------------------------------------
+
+
+
+new_selected_feature = {}
+
+for(k,v) in vec_TF_IDF.vocabulary_.items():
+    if k in selected_feature:
+        new_selected_feature[k]= v
+        
+new_selected_feature
+
+
+
+------------------------------------------------------------
+
+len(new_selected_feature)
+
+
+------------------------------------------------------------
+
+pickle.dump(new_selected_feature,open("new_selected_feature.sav","wb"))
+
+
+------------------------------------------------------------
+
+data_selected_feature = pd.DataFrame(x_kbest_features, columns = selected_feature)
+
+data_selected_feature
+
+
+------------------------------------------------------------
+
+selected_x = x_kbest_features
+selected_x
+
+
+------------------------------------------------------------
+
+import random
+from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
+
+
+x = selected_x
+y = data.label
+
+x_train, x_test, y_train, y_test = train_test_split(x,y, test_size =0.2, random_state = 0)
+
+
+------------------------------------------------------------
+
+print('xtest', len(x_test))
+print('xtrain', len(x_train))
+print('ytest', len(y_test))
+print('ytrain', len(x_train))
+
+------------------------------------------------------------
+
+
+text_algorithm = MultinomialNB()
+
+model = text_algorithm.fit(x_train, y_train)
+
+
+------------------------------------------------------------
+
+
+data_input = ("BEBAS ekspresikan dirimu bersama Paket Freedom Combo dari Indosat Ooredoo. Segera hub *123# atau www.indosatooredoo.com/freedom,2,promo,113,bebas ekspresi diri paket freedom combo indosat ooredoo hubung wwwindosatooredoocomfreedom")
+
+data_input = text_preprocessing_process(data_input)
+
+tfidf = TfidfVectorizer
+loaded_vec = TfidfVectorizer(decode_error="replace", vocabulary = set(pickle.load(open("new_selected_features.sav","rb"))))
+
+hasil = model.predict(loaded_vec.fit_transform([data_input]))
+
+
+if(hasil == 0):
+    s = "ini adalah Pesan Normal"
+    
+elif(hasil == 1):
+    s = "pesan ter-indikasi penipuan"
+else:
+    s = "ini adalah pesan promo"
+    
+print("prediksi:",s)
+
+------------------------------------------------------------
+
+
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import classification_report
+
+predicted = model.predict(x_test)
+
+CM = confusion_matrix(y_test,predicted)
+
+print(classification_report(y_test,predicted))
+
+
+------------------------------------------------------------
+
+
+pickle.dump(model,open("penipuan.sav","wb"))
+
+-----------------------------------------------------------
+
+
